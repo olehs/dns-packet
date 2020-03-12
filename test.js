@@ -6,6 +6,8 @@ const rcodes = require('./rcodes')
 const opcodes = require('./opcodes')
 const optioncodes = require('./optioncodes')
 
+packet.name.compression = false
+
 tape('unknown', function (t) {
   testEncoder(t, packet.unknown, Buffer.from('hello world'))
   t.end()
@@ -272,7 +274,9 @@ tape('rcode', function (t) {
   t.end()
 })
 
-tape('name_encoding', function (t) {
+tape('name_encoding_with_compression', function (t) {
+  packet.name.compression = true
+
   let data = 'foo.example.com'
   const buf = Buffer.allocUnsafe(255)
   let offset = 0
@@ -284,10 +288,18 @@ tape('name_encoding', function (t) {
 
   data = 'com'
   packet.name.encode(data, buf, offset)
-  t.ok(packet.name.encode.bytes === 5, 'name encoding length matches')
+  t.ok(packet.name.encode.bytes === 2, 'name encoding compressed length matches')
   dd = packet.name.decode(buf, offset)
   t.ok(data === dd, 'encode/decode matches')
   offset += packet.name.encode.bytes
+
+  data = 'example.com.'
+  packet.name.encode(data, buf, offset)
+  t.ok(packet.name.encode.bytes === 2, 'name encoding compressed length matches')
+  dd = packet.name.decode(buf, offset)
+  t.ok(data.slice(0, -1) === dd, 'encode/decode matches')
+
+  packet.name.compression = false
 
   data = 'example.com.'
   packet.name.encode(data, buf, offset)
@@ -301,6 +313,13 @@ tape('name_encoding', function (t) {
   t.ok(packet.name.encode.bytes === 1, 'name encoding length matches')
   dd = packet.name.decode(buf, offset)
   t.ok(data === dd, 'encode/decode matches')
+  t.end()
+})
+
+tape('name-invalid-data-offset', function (t) {
+  const stackover = Buffer
+    .from('8ad4e46c0f1b450d0080000000000400b0047dd45403c700001d1c8012007fffff057305ffdce0021e05b6fd00efc0e1007ef9107dc45540fa7e3009c0595e31e6b3ba84ee0262acc045', 'hex')
+  t.throws(function () { packet.name.decode(stackover, 69) }, /offset/)
   t.end()
 })
 

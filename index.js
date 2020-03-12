@@ -13,13 +13,19 @@ const FLUSH_MASK = 1 << 15
 const NOT_FLUSH_MASK = ~FLUSH_MASK
 const QU_MASK = 1 << 15
 const NOT_QU_MASK = ~QU_MASK
+const POINTER_SEQUENCE = 0xc0
+const POINTER_BASE = POINTER_SEQUENCE << 8
+const POINTER_OFFSETS = []
 
 const name = exports.txt = exports.name = {}
+
+name.compression = true
 
 name.encode = function (str, buf, offset) {
   if (!buf) buf = Buffer.allocUnsafe(name.encodingLength(str))
   if (!offset) offset = 0
   const oldOffset = offset
+  let isPointer = false
 
   // strip leading and trailing .
   const n = str.replace(/^\.|\.$/gm, '')
@@ -27,19 +33,46 @@ name.encode = function (str, buf, offset) {
     const list = n.split('.')
 
     for (let i = 0; i < list.length; i++) {
+      const ln = list.slice(i).join('.')
+
+      if (name.compression) {
+        if (ln in name.encode.pointers) {
+          buf.writeUInt16BE(POINTER_BASE + name.encode.pointers[ln], offset)
+          offset += 2
+          isPointer = true
+          break
+        }
+        name.encode.pointers[ln] = offset
+      }
+
       const len = buf.write(list[i], offset + 1)
       buf[offset] = len
       offset += len + 1
     }
   }
 
-  buf[offset++] = 0
+  if (!isPointer) buf[offset++] = 0
 
   name.encode.bytes = offset - oldOffset
   return buf
 }
 
+name.encode.pointers = {}
 name.encode.bytes = 0
+
+name.decodePointer = function (buf, offset) {
+  const ptrOffset = buf.readUInt16BE(offset - 1) - POINTER_BASE
+  if (~POINTER_OFFSETS.indexOf(ptrOffset)) {
+    throw new Error('Invalid pointer offset')
+  }
+
+  POINTER_OFFSETS.push(ptrOffset)
+  try {
+    return name.decode(buf, ptrOffset)
+  } finally {
+    POINTER_OFFSETS.pop()
+  }
+}
 
 name.decode = function (buf, offset) {
   if (!offset) offset = 0
@@ -52,15 +85,16 @@ name.decode = function (buf, offset) {
     name.decode.bytes = 1
     return '.'
   }
-  if (len >= 0xc0) {
-    const res = name.decode(buf, buf.readUInt16BE(offset - 1) - 0xc000)
+  if (len & POINTER_SEQUENCE) {
+    const res = name.decodePointer(buf, offset)
     name.decode.bytes = 2
     return res
   }
 
   while (len) {
-    if (len >= 0xc0) {
-      list.push(name.decode(buf, buf.readUInt16BE(offset - 1) - 0xc000))
+    if (len & POINTER_SEQUENCE) {
+      const res = name.decodePointer(buf, offset)
+      list.push(res)
       offset++
       break
     }
@@ -1442,7 +1476,8 @@ exports.CHECKING_DISABLED = 1 << 4
 exports.DNSSEC_OK = 1 << 15
 
 exports.encode = function (result, buf, offset) {
-  if (!buf) buf = Buffer.allocUnsafe(exports.encodingLength(result))
+  const needBuf = !buf
+  if (needBuf) buf = Buffer.allocUnsafe(exports.encodingLength(result))
   if (!offset) offset = 0
 
   const oldOffset = offset
@@ -1452,6 +1487,7 @@ exports.encode = function (result, buf, offset) {
   if (!result.authorities) result.authorities = []
   if (!result.additionals) result.additionals = []
 
+  name.encode.pointers = {}
   header.encode(result, buf, offset)
   offset += header.encode.bytes
 
@@ -1462,7 +1498,8 @@ exports.encode = function (result, buf, offset) {
 
   exports.encode.bytes = offset - oldOffset
 
-  return buf
+  if (!needBuf) return buf
+  return buf.length > exports.encode.bytes ? buf.slice(0, exports.encode.bytes) : buf
 }
 
 exports.encode.bytes = 0
