@@ -19,6 +19,8 @@ const POINTER_OFFSETS = []
 
 const name = exports.txt = exports.name = {}
 
+let namePointers = {}
+
 name.compression = true
 
 name.encode = function (str, buf, offset) {
@@ -27,28 +29,28 @@ name.encode = function (str, buf, offset) {
   const oldOffset = offset
   let isPointer = false
 
-  // strip leading and trailing .
-  const n = str.replace(/^\.|\.$/gm, '')
-  if (n.length) {
-    const list = n.split('.')
+  const list = Array.isArray(str) ? str.filter(Boolean) : str.split('.').reduce(function (arr, v) {
+    if (v) arr.push(v)
+    else arr[arr.length - 1] + "."
+    return arr
+  }, [])
 
-    for (let i = 0; i < list.length; i++) {
-      const ln = list.slice(i).join('.')
+  for (let i = 0; i < list.length; i++) {
+    const ln = list.slice(i).join('.')
 
-      if (name.compression) {
-        if (ln in name.encode.pointers) {
-          buf.writeUInt16BE(POINTER_BASE + name.encode.pointers[ln], offset)
-          offset += 2
-          isPointer = true
-          break
-        }
-        name.encode.pointers[ln] = offset
+    if (name.compression) {
+      if (ln in namePointers) {
+        buf.writeUInt16BE(POINTER_BASE + namePointers[ln], offset)
+        offset += 2
+        isPointer = true
+        break
       }
-
-      const len = buf.write(list[i], offset + 1)
-      buf[offset] = len
-      offset += len + 1
+      namePointers[ln] = offset
     }
+
+    const len = buf.write(list[i], offset + 1)
+    buf[offset] = len
+    offset += len + 1
   }
 
   if (!isPointer) buf[offset++] = 0
@@ -57,7 +59,6 @@ name.encode = function (str, buf, offset) {
   return buf
 }
 
-name.encode.pointers = {}
 name.encode.bytes = 0
 
 name.decodePointer = function (buf, offset) {
@@ -111,8 +112,9 @@ name.decode = function (buf, offset) {
 name.decode.bytes = 0
 
 name.encodingLength = function (n) {
-  if (n === '.') return 1
-  return Buffer.byteLength(n) + 2
+  const sn = Array.isArray(n) ? n.filter(Boolean).join('.') : n
+  if (sn === '.') return 1
+  return Buffer.byteLength(sn) + 2
 }
 
 const string = {}
@@ -1487,7 +1489,7 @@ exports.encode = function (result, buf, offset) {
   if (!result.authorities) result.authorities = []
   if (!result.additionals) result.additionals = []
 
-  name.encode.pointers = {}
+  namePointers = {}
   header.encode(result, buf, offset)
   offset += header.encode.bytes
 
