@@ -4,8 +4,8 @@
   "description": "An abstract-encoding compliant module for encoding / decoding DNS packets",
   "author": "Mathias Buus",
   "license": "MIT",
-  "repository": "mafintosh/dns-packet",
-  "homepage": "https://github.com/mafintosh/dns-packet",
+  "repository": "olehs/dns-packet",
+  "homepage": "https://github.com/olehs/dns-packet",
   "engines": {
     "node": ">=6"
   },
